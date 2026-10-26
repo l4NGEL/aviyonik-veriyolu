@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    name: Derleme + test (Ubuntu 24.04, GCC 14, FreeRTOS)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bağımlılıklar
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 ninja-build libgtest-dev can-utils
+      - name: SocketCAN sanal arayüzü (varsa)
+        run: |
+          sudo apt-get install -y linux-modules-extra-$(uname -r) || true
+          (sudo modprobe vcan && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0) \
+            || echo "vcan kullanılamıyor; SocketCAN testleri atlanacak"
+      - name: Yapılandır
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAVB_WERROR=ON
+          -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
+      - name: Derle
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bağımlılıklar
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build libgtest-dev
+      - name: Yapılandır
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DAVB_WERROR=ON -DAVB_BUILD_RTOS=OFF
+          -DAVB_SANITIZE=address,undefined
+      - name: Derle
+        run: cmake --build build
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure
+
+  analiz:
+    name: Kapsama (MC/DC) + cppcheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bağımlılıklar
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 ninja-build libgtest-dev cppcheck
+      - name: cppcheck
+        run: cppcheck --enable=warning,performance,portability --std=c++17 --error-exitcode=1 -q -I include src apps
+      - name: Kapsamalı derleme ve test
+        run: |
+          cmake -S . -B build -G Ninja -DAVB_COVERAGE=ON -DAVB_BUILD_RTOS=OFF \
+            -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+      - name: Kapsama özeti
+        run: |
+          cd build
+          gcov-14 -b --conditions $(find . -name "*.gcda" -path "*avb.dir*") | grep -A3 "^File '.*/src/" || true
