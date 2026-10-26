@@ -14,16 +14,29 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc-14 g++-14 ninja-build libgtest-dev can-utils
+      - name: Çekirdek sürümü
+        id: cekirdek
+        run: echo "surum=$(uname -r)" >> "$GITHUB_OUTPUT"
+      - name: CAN çekirdek modülleri önbelleği
+        uses: actions/cache@v4
+        with:
+          path: ~/can-mod
+          key: can-mod-${{ steps.cekirdek.outputs.surum }}
       - name: SocketCAN sanal arayüzü (varsa)
-        # Paketi kurmak initramfs'i yeniden ürettiği için ~20 dk sürüyor; yalnız CAN modüllerini çıkarıp yükle
+        # vcan, Azure çekirdeğinde linux-modules-extra paketinde (51 MB). Ayna bazen çok yavaş
+        # (7-20 dk), bu yüzden yalnız CAN modülleri çekirdek sürümüne göre önbellekte tutuluyor.
         run: |
           set +e
           K=$(uname -r)
           if ! sudo modprobe vcan 2>/dev/null; then
-            cd /tmp && apt-get download linux-modules-extra-$K && dpkg-deb -x linux-modules-extra-$K*.deb mx
+            if [ ! -d ~/can-mod/net/can ]; then
+              cd /tmp && timeout 300 apt-get download linux-modules-extra-$K && dpkg-deb -x linux-modules-extra-$K*.deb mx
+              for d in net/can drivers/net/can; do
+                [ -d mx/lib/modules/$K/kernel/$d ] && mkdir -p ~/can-mod/$d && cp -r mx/lib/modules/$K/kernel/$d/. ~/can-mod/$d/
+              done
+            fi
             for d in net/can drivers/net/can; do
-              [ -d mx/lib/modules/$K/kernel/$d ] && sudo mkdir -p /lib/modules/$K/kernel/$d && \
-                sudo cp -rn mx/lib/modules/$K/kernel/$d/. /lib/modules/$K/kernel/$d/
+              [ -d ~/can-mod/$d ] && sudo mkdir -p /lib/modules/$K/kernel/$d && sudo cp -r ~/can-mod/$d/. /lib/modules/$K/kernel/$d/
             done
             sudo depmod -a
           fi
