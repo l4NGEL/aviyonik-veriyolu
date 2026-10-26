@@ -32,10 +32,11 @@ jobs:
           if ! sudo modprobe vcan 2>/dev/null; then
             if [ ! -d ~/can-mod/net/can ]; then
               cd /tmp
-              URL=$(apt-get download --print-uris linux-modules-extra-$K | head -1 | cut -d"'" -f2)
-              ALT=$(echo "$URL" | sed 's#//azure\.archive\.ubuntu\.com/#//archive.ubuntu.com/#')
-              echo "indiriliyor: $ALT"
-              curl -fsSL --max-time 600 -o mx.deb "$ALT" || curl -fsSL --max-time 600 -o mx.deb "$URL"
+              # Runner apt'si mirror+file: yöntemini kullanıyor; paketin pool/ yolunu alıp doğrudan arşivden çek
+              POOL=$(apt-get download --print-uris linux-modules-extra-$K | head -1 | cut -d"'" -f2 | sed 's#.*/pool/#pool/#')
+              echo "indiriliyor: http://archive.ubuntu.com/ubuntu/$POOL"
+              curl -fsSL --max-time 600 -o mx.deb "http://archive.ubuntu.com/ubuntu/$POOL" \
+                || { timeout 600 apt-get download linux-modules-extra-$K && mv linux-modules-extra-$K*.deb mx.deb; }
               dpkg-deb -x mx.deb mx
               for d in net/can drivers/net/can; do
                 [ -d mx/lib/modules/$K/kernel/$d ] && mkdir -p ~/can-mod/$d && cp -r mx/lib/modules/$K/kernel/$d/. ~/can-mod/$d/
