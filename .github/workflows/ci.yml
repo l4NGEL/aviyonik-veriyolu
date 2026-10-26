@@ -15,10 +15,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc-14 g++-14 ninja-build libgtest-dev can-utils
       - name: SocketCAN sanal arayüzü (varsa)
+        # Paketi kurmak initramfs'i yeniden ürettiği için ~20 dk sürüyor; yalnız CAN modüllerini çıkarıp yükle
         run: |
-          sudo apt-get install -y linux-modules-extra-$(uname -r) || true
-          (sudo modprobe vcan && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0) \
+          set +e
+          K=$(uname -r)
+          if ! sudo modprobe vcan 2>/dev/null; then
+            cd /tmp && apt-get download linux-modules-extra-$K && dpkg-deb -x linux-modules-extra-$K*.deb mx
+            for d in net/can drivers/net/can; do
+              [ -d mx/lib/modules/$K/kernel/$d ] && sudo mkdir -p /lib/modules/$K/kernel/$d && \
+                sudo cp -rn mx/lib/modules/$K/kernel/$d/. /lib/modules/$K/kernel/$d/
+            done
+            sudo depmod -a
+          fi
+          (sudo modprobe vcan && sudo modprobe can-raw && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0) \
             || echo "vcan kullanılamıyor; SocketCAN testleri atlanacak"
+          ip -br link show vcan0 || true
       - name: Yapılandır
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAVB_WERROR=ON

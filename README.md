@@ -1,5 +1,7 @@
 # aviyonik-veriyolu
 
+[![CI](https://github.com/l4NGEL/aviyonik-veriyolu/actions/workflows/ci.yml/badge.svg)](https://github.com/l4NGEL/aviyonik-veriyolu/actions/workflows/ci.yml)
+
 MIL-STD-1553B ve CAN için C++17 veri yolu kütüphanesi. Yanında, FreeRTOS üzerinde
 çalışan ve 1553'ten gelen telemetriyi CAN'e aktaran bir gerçek zamanlı örnek uygulama var.
 
