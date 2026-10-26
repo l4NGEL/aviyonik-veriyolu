@@ -23,14 +23,20 @@ jobs:
           path: ~/can-mod
           key: can-mod-${{ steps.cekirdek.outputs.surum }}
       - name: SocketCAN sanal arayüzü (varsa)
-        # vcan, Azure çekirdeğinde linux-modules-extra paketinde (51 MB). Ayna bazen çok yavaş
-        # (7-20 dk), bu yüzden yalnız CAN modülleri çekirdek sürümüne göre önbellekte tutuluyor.
+        # vcan, Azure çekirdeğinde linux-modules-extra paketinde (51 MB) ve runner'ın Azure aynası
+        # bazen ~100 kB/s'ye düşüyor. Paket archive.ubuntu.com'dan çekiliyor, yalnız CAN modülleri
+        # çekirdek sürümüne göre önbellekte tutuluyor.
         run: |
           set +e
           K=$(uname -r)
           if ! sudo modprobe vcan 2>/dev/null; then
             if [ ! -d ~/can-mod/net/can ]; then
-              cd /tmp && timeout 300 apt-get download linux-modules-extra-$K && dpkg-deb -x linux-modules-extra-$K*.deb mx
+              cd /tmp
+              URL=$(apt-get download --print-uris linux-modules-extra-$K | head -1 | cut -d"'" -f2)
+              ALT=$(echo "$URL" | sed 's#//azure\.archive\.ubuntu\.com/#//archive.ubuntu.com/#')
+              echo "indiriliyor: $ALT"
+              curl -fsSL --max-time 600 -o mx.deb "$ALT" || curl -fsSL --max-time 600 -o mx.deb "$URL"
+              dpkg-deb -x mx.deb mx
               for d in net/can drivers/net/can; do
                 [ -d mx/lib/modules/$K/kernel/$d ] && mkdir -p ~/can-mod/$d && cp -r mx/lib/modules/$K/kernel/$d/. ~/can-mod/$d/
               done
@@ -40,9 +46,11 @@ jobs:
             done
             sudo depmod -a
           fi
-          (sudo modprobe vcan && sudo modprobe can-raw && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0) \
-            || echo "vcan kullanılamıyor; SocketCAN testleri atlanacak"
-          ip -br link show vcan0 || true
+          if sudo modprobe vcan && sudo modprobe can-raw && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0; then
+            ip -br link show vcan0
+          else
+            echo "::warning::vcan kullanılamıyor; SocketCAN testleri atlanacak"
+          fi
       - name: Yapılandır
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAVB_WERROR=ON
